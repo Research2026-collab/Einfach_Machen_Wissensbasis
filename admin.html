@@ -59,6 +59,12 @@
   .form-msg.ok{color:var(--tag);}
   .form-msg.err{color:var(--c3);}
   .recent{margin-top:32px;font-size:13px;color:var(--text-muted);}
+  .analyzer{background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:18px 22px;margin-bottom:20px;}
+  .analyzer h2{font-family:'Fraunces',serif;font-size:19px;margin:0 0 5px;}
+  .url-row{display:flex;gap:10px;align-items:end;margin-top:14px;}
+  .url-row label{flex:1;}
+  .url-row button{white-space:nowrap;}
+  @media (max-width:520px){.url-row{flex-direction:column;align-items:stretch;}}
   footer{margin-top:48px;color:var(--text-muted);font-size:12px;text-align:center;}
 </style>
 </head>
@@ -72,6 +78,18 @@
     <h1>Einfach.Machen &ndash; Admin</h1>
   </div>
   <p class="subtitle">Eintr&auml;ge mit g&uuml;ltigem Zugangscode erscheinen direkt und ohne redaktionelle Pr&uuml;fung im Wissensraum.</p>
+
+  <div class="analyzer">
+    <h2>Material per URL analysieren</h2>
+    <p class="hint">URL eingeben. Claude analysiert die Quelle und füllt das Formular mit einem Vorschlag aus. Bitte Angaben vor der Veröffentlichung prüfen.</p>
+    <div class="url-row">
+      <label>URL des Materials
+        <input id="analyse-url" type="url" placeholder="https://…">
+      </label>
+      <button id="analyse-btn" type="button">Analysieren</button>
+    </div>
+    <span class="form-msg" id="msg-analyse"></span>
+  </div>
 
   <div class="panel">
     <p class="hint">Alle Felder bis auf Zielgruppe 2 und Schlagworte sind erforderlich.</p>
@@ -163,6 +181,66 @@ async function init(){
     msgEl.className = "form-msg err";
   }
 }
+
+function setSelectValue(name, value){
+  if (!value) return;
+  const select = document.querySelector(`[name="${name}"]`);
+  if (!select) return;
+  const match = [...select.options].find(o => o.value === value);
+  if (match) select.value = value;
+}
+
+async function analyseUrl(){
+  const url = document.getElementById("analyse-url").value.trim();
+  const msgEl = document.getElementById("msg-analyse");
+  const btn = document.getElementById("analyse-btn");
+  if (!url) {
+    msgEl.textContent = "Bitte eine URL eingeben.";
+    msgEl.className = "form-msg err";
+    return;
+  }
+  msgEl.textContent = "Quelle wird analysiert …";
+  msgEl.className = "form-msg";
+  btn.disabled = true;
+  try {
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "analysieren", url: url })
+    });
+    const result = await res.json();
+    if (!result.ok) throw new Error(result.error || "Analyse fehlgeschlagen");
+    const a = result.analyse || {};
+    const form = document.getElementById("form-admin");
+    form.elements.titel.value = a.titel || "";
+    form.elements.kurzbeschreibung.value = a.kurzbeschreibung || "";
+    form.elements.url.value = a.url || url;
+    setSelectValue("hauptbereich", a.hauptbereich);
+    setSelectValue("thema", a.thema);
+    setSelectValue("zielgruppe1", a.zielgruppe1);
+    setSelectValue("zielgruppe2", a.zielgruppe2);
+    setSelectValue("materialformat", a.materialformat);
+    setSelectValue("sprachebene", a.sprachebene);
+    setSelectValue("lizenzmodell", a.lizenzmodell);
+    form.elements.tags.value = (a.tags || []).slice(0,5).join(", ");
+    const hinweise = (a.hinweise || []).filter(Boolean);
+    msgEl.textContent = hinweise.length
+      ? "Vorschlag eingetragen. Bitte prüfen: " + hinweise.join(" · ")
+      : "Vorschlag eingetragen. Bitte vor der Veröffentlichung prüfen.";
+    msgEl.className = "form-msg ok";
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    msgEl.textContent = "Analyse fehlgeschlagen: " + err.message;
+    msgEl.className = "form-msg err";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("analyse-btn").addEventListener("click", analyseUrl);
+document.getElementById("analyse-url").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); analyseUrl(); }
+});
 
 document.getElementById("form-admin").addEventListener("submit", async e => {
   e.preventDefault();
